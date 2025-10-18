@@ -1,4 +1,4 @@
-package memoizer
+package cacher
 
 // Coder defines the interface for encoding and decoding values
 type Coder[V any] interface {

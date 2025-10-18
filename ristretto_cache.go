@@ -1,4 +1,4 @@
-package memoizer
+package cacher
 
 import (
 	"context"

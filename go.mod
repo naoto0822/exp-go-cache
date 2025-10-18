@@ -1,4 +1,4 @@
-module github.com/naoto0822/exp-go-memoizer
+module github.com/naoto0822/exp-go-cacher
 
 go 1.24.4
 
