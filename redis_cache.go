@@ -8,14 +8,14 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// RedisClient wraps go-redis client to implement the RemoteCacher interface with generic type support
-type RedisClient[V any] struct {
+// RedisCache wraps go-redis client to implement the RemoteCacher interface with generic type support
+type RedisCache[V any] struct {
 	client *redis.Client
 	coder  Coder[V]
 }
 
-// RedisClientConfig holds configuration for RedisClient
-type RedisClientConfig struct {
+// RedisCacheConfig holds configuration for RedisCache
+type RedisCacheConfig struct {
 	// Addr is the Redis server address (e.g., "localhost:6379")
 	Addr string
 
@@ -41,9 +41,9 @@ type RedisClientConfig struct {
 	MinIdleConns int
 }
 
-// DefaultRedisClientConfig returns a default configuration
-func DefaultRedisClientConfig() *RedisClientConfig {
-	return &RedisClientConfig{
+// DefaultRedisCacheConfig returns a default configuration
+func DefaultRedisCacheConfig() *RedisCacheConfig {
+	return &RedisCacheConfig{
 		Addr:         "localhost:6379",
 		Password:     "",
 		DB:           0,
@@ -55,10 +55,10 @@ func DefaultRedisClientConfig() *RedisClientConfig {
 	}
 }
 
-// NewRedisClient creates a new RedisClient instance
-func NewRedisClient[V any](config *RedisClientConfig, coder Coder[V]) (*RedisClient[V], error) {
+// NewRedisCache creates a new RedisCache instance
+func NewRedisCache[V any](config *RedisCacheConfig, coder Coder[V]) (*RedisCache[V], error) {
 	if config == nil {
-		config = DefaultRedisClientConfig()
+		config = DefaultRedisCacheConfig()
 	}
 
 	if coder == nil {
@@ -84,14 +84,14 @@ func NewRedisClient[V any](config *RedisClientConfig, coder Coder[V]) (*RedisCli
 		return nil, err
 	}
 
-	return &RedisClient[V]{
+	return &RedisCache[V]{
 		client: client,
 		coder:  coder,
 	}, nil
 }
 
 // Get retrieves a value from Redis
-func (r *RedisClient[V]) Get(ctx context.Context, key string) (V, error) {
+func (r *RedisCache[V]) Get(ctx context.Context, key string) (V, error) {
 	var zero V
 
 	result, err := r.client.Get(ctx, key).Result()
@@ -112,7 +112,7 @@ func (r *RedisClient[V]) Get(ctx context.Context, key string) (V, error) {
 }
 
 // Set stores a value in Redis with a TTL
-func (r *RedisClient[V]) Set(ctx context.Context, key string, value V, ttl time.Duration) error {
+func (r *RedisCache[V]) Set(ctx context.Context, key string, value V, ttl time.Duration) error {
 	// Encode using the configured coder
 	data, err := r.coder.Encode(value)
 	if err != nil {
@@ -123,7 +123,7 @@ func (r *RedisClient[V]) Set(ctx context.Context, key string, value V, ttl time.
 }
 
 // Delete removes a value from Redis
-func (r *RedisClient[V]) Delete(ctx context.Context, key string) error {
+func (r *RedisCache[V]) Delete(ctx context.Context, key string) error {
 	result, err := r.client.Del(ctx, key).Result()
 	if err != nil {
 		return err
@@ -138,11 +138,11 @@ func (r *RedisClient[V]) Delete(ctx context.Context, key string) error {
 }
 
 // Close closes the Redis connection
-func (r *RedisClient[V]) Close() error {
+func (r *RedisCache[V]) Close() error {
 	return r.client.Close()
 }
 
 // Ping checks if the Redis server is reachable
-func (r *RedisClient[V]) Ping(ctx context.Context) error {
+func (r *RedisCache[V]) Ping(ctx context.Context) error {
 	return r.client.Ping(ctx).Err()
 }
