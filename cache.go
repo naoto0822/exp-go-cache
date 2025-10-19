@@ -38,3 +38,31 @@ type RemoteCacher[V any] interface {
 	// Returns ErrCacheMiss if the key is not found
 	Delete(ctx context.Context, key string) error
 }
+
+// BatchLocalCacher defines the interface for local cache implementations that support batch operations
+type BatchLocalCacher[V any] interface {
+	LocalCacher[V]
+
+	// BatchGet retrieves multiple values from cache
+	// Returns a map of key-value pairs for found keys
+	// Missing keys are simply not included in the returned map
+	BatchGet(ctx context.Context, keys []string) (map[string]V, error)
+
+	// BatchSet stores multiple values in cache with a TTL
+	// All items share the same TTL
+	BatchSet(ctx context.Context, items map[string]V, ttl time.Duration) error
+}
+
+// BatchRemoteCacher defines the interface for remote cache implementations that support batch operations
+type BatchRemoteCacher[V any] interface {
+	RemoteCacher[V]
+
+	// BatchGet retrieves multiple values from cache
+	// Returns a map of key-value pairs for found keys
+	// Missing keys are simply not included in the returned map
+	BatchGet(ctx context.Context, keys []string) (map[string]V, error)
+
+	// BatchSet stores multiple values in cache with a TTL
+	// All items share the same TTL
+	BatchSet(ctx context.Context, items map[string]V, ttl time.Duration) error
+}

@@ -134,6 +134,81 @@ func (r *RedisCache[V]) Delete(ctx context.Context, key string) error {
 	return nil
 }
 
+// BatchGet retrieves multiple values from Redis using Pipeline
+// Returns a map of key-value pairs for found keys
+// Missing keys are simply not included in the returned map
+func (r *RedisCache[V]) BatchGet(ctx context.Context, keys []string) (map[string]V, error) {
+	if len(keys) == 0 {
+		return make(map[string]V), nil
+	}
+
+	// Use Pipeline for efficient batch operations
+	pipe := r.client.Pipeline()
+
+	// Queue all GET commands
+	cmds := make([]*redis.StringCmd, len(keys))
+	for i, key := range keys {
+		cmds[i] = pipe.Get(ctx, key)
+	}
+
+	// Execute pipeline
+	_, err := pipe.Exec(ctx)
+	if err != nil && !errors.Is(err, redis.Nil) {
+		// Ignore redis.Nil errors as they indicate cache misses
+		// Only return actual errors
+	}
+
+	// Collect results
+	results := make(map[string]V, len(keys))
+	for i, cmd := range cmds {
+		result, err := cmd.Result()
+		if err != nil {
+			if errors.Is(err, redis.Nil) {
+				// Cache miss - skip this key
+				continue
+			}
+			// Other errors - skip this key but continue processing
+			continue
+		}
+
+		// Decode the value
+		value, err := r.coder.Decode([]byte(result))
+		if err != nil {
+			// Decode error - skip this key
+			continue
+		}
+
+		results[keys[i]] = value
+	}
+
+	return results, nil
+}
+
+// BatchSet stores multiple values in Redis with a TTL using Pipeline
+// All items share the same TTL
+func (r *RedisCache[V]) BatchSet(ctx context.Context, items map[string]V, ttl time.Duration) error {
+	if len(items) == 0 {
+		return nil
+	}
+
+	// Use Pipeline for efficient batch operations
+	pipe := r.client.Pipeline()
+
+	// Queue all SET commands
+	for key, value := range items {
+		// Encode the value
+		data, err := r.coder.Encode(value)
+		if err != nil {
+			return err
+		}
+		pipe.Set(ctx, key, data, ttl)
+	}
+
+	// Execute pipeline
+	_, err := pipe.Exec(ctx)
+	return err
+}
+
 // Close closes the Redis connection
 func (r *RedisCache[V]) Close() error {
 	return r.client.Close()

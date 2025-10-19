@@ -86,6 +86,35 @@ func (r *RistrettoCache[V]) Delete(ctx context.Context, key string) error {
 	return nil
 }
 
+// BatchGet retrieves multiple values from the cache
+// Returns a map of key-value pairs for found keys
+// Missing keys are simply not included in the returned map
+func (r *RistrettoCache[V]) BatchGet(ctx context.Context, keys []string) (map[string]V, error) {
+	results := make(map[string]V, len(keys))
+	for _, key := range keys {
+		value, found := r.cache.Get(key)
+		if !found {
+			continue
+		}
+		// Type assertion with safety check
+		if v, ok := value.(V); ok {
+			results[key] = v
+		}
+	}
+	return results, nil
+}
+
+// BatchSet stores multiple values in the cache with a TTL
+// All items share the same TTL
+func (r *RistrettoCache[V]) BatchSet(ctx context.Context, items map[string]V, ttl time.Duration) error {
+	cost := int64(1)
+	for key, value := range items {
+		r.cache.SetWithTTL(key, value, cost, ttl)
+	}
+	r.cache.Wait()
+	return nil
+}
+
 // Close closes the cache and releases resources
 func (r *RistrettoCache[V]) Close() error {
 	r.cache.Close()
