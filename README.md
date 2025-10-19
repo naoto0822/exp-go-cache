@@ -15,6 +15,7 @@ A flexible, type-safe multi-tier caching library for Go with support for local a
   - JSON (default)
   - MessagePack for better performance and smaller payload size
 - **Compute Function**: Built-in support for cache-aside pattern with compute functions
+- **Cache Stampede Protection**: Uses singleflight to prevent duplicate compute function executions for the same key
 - **Context Support**: Full context.Context support for cancellation and timeouts
 
 ## Installation
@@ -95,13 +96,23 @@ Check L1 (Local) ──Hit──→ Return Value
     ↓ Miss
 Check L2 (Remote) ──Hit──→ Populate L1 → Return Value
     ↓ Miss
-Execute Compute Function → Populate L1 & L2 → Return Value
+Execute Compute Function (via singleflight) → Populate L1 & L2 → Return Value
 ```
+
+### Cache Stampede Protection
+
+When multiple concurrent requests miss the cache for the same key, the library uses [singleflight](https://pkg.go.dev/golang.org/x/sync/singleflight) to ensure only one compute function executes:
+
+- **Without singleflight**: 100 concurrent requests = 100 database/API calls
+- **With singleflight**: 100 concurrent requests = 1 database/API call (others wait and share the result)
+
+This significantly reduces load on downstream services during cache misses or after cache invalidation.
 
 ## Performance Considerations
 
 - **Ristretto** uses approximate algorithms (TinyLFU) for admission and eviction, providing excellent hit ratios
 - **MessagePack** encoding is faster and produces smaller payloads compared to JSON
+- **Singleflight** prevents thundering herd problem by deduplicating concurrent requests for the same key
 - Both cache tiers are populated on compute to maximize cache hits
 - Context cancellation is respected throughout the caching flow
 
@@ -110,6 +121,7 @@ Execute Compute Function → Populate L1 & L2 → Return Value
 - [github.com/dgraph-io/ristretto](https://github.com/dgraph-io/ristretto) - High-performance in-memory cache
 - [github.com/redis/go-redis/v9](https://github.com/redis/go-redis) - Redis client for Go
 - [github.com/hashicorp/go-msgpack/v2](https://github.com/hashicorp/go-msgpack) - MessagePack encoding
+- [golang.org/x/sync/singleflight](https://pkg.go.dev/golang.org/x/sync/singleflight) - Cache stampede protection
 
 ## License
 
