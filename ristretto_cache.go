@@ -39,7 +39,6 @@ func NewRistrettoCache[V any](config *RistrettoCacheConfig) (*RistrettoCache[V],
 	if config == nil {
 		config = DefaultRistrettoCacheConfig()
 	}
-
 	cache, err := ristretto.NewCache(&ristretto.Config{
 		NumCounters: config.NumCounters,
 		MaxCost:     config.MaxCost,
@@ -48,7 +47,6 @@ func NewRistrettoCache[V any](config *RistrettoCacheConfig) (*RistrettoCache[V],
 	if err != nil {
 		return nil, err
 	}
-
 	return &RistrettoCache[V]{
 		cache: cache,
 	}, nil
@@ -61,7 +59,6 @@ func (r *RistrettoCache[V]) Get(ctx context.Context, key string) (V, error) {
 	if !found {
 		return zero, ErrCacheMiss
 	}
-
 	// Type assertion with safety check
 	if v, ok := value.(V); ok {
 		return v, nil

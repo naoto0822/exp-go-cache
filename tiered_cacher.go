@@ -75,6 +75,7 @@ func (tm *TieredCacher[V]) getCache(ctx context.Context, key string) (V, bool, e
 	if tm.remoteCache != nil {
 		val, err := tm.remoteCache.Get(ctx, key)
 		if err == nil {
+			// TODO: Populate L1 on L2 hit
 			return val, true, nil
 		}
 		if !errors.Is(err, ErrCacheMiss) {

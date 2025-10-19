@@ -1,5 +1,7 @@
 # exp-go-cacher
 
+> **Note**: This is an experimental project for exploring multi-tier caching strategies and design patterns in Go. The API may change and is not recommended for production use.
+
 A flexible, type-safe multi-tier caching library for Go with support for local and remote cache backends.
 
 ## Features
@@ -76,123 +78,6 @@ func main() {
 }
 ```
 
-### Using Only Local Cache
-
-```go
-// Create local-only cache
-localCache, _ := cacher.NewRistrettoCache[string](nil)
-tieredCacher := cacher.NewTieredCacher[string](localCache, nil)
-
-ctx := context.Background()
-value, err := tieredCacher.Get(ctx, "key", time.Minute, func(ctx context.Context, key string) (string, error) {
-    return "computed value", nil
-})
-```
-
-### Using Only Remote Cache
-
-```go
-// Create remote-only cache
-redisCache, _ := cacher.NewRedisCache[string](nil, nil)
-tieredCacher := cacher.NewTieredCacher[string](nil, redisCache)
-
-ctx := context.Background()
-value, err := tieredCacher.Get(ctx, "key", time.Hour, func(ctx context.Context, key string) (string, error) {
-    return "computed value", nil
-})
-```
-
-## Configuration
-
-### Ristretto Cache Configuration
-
-```go
-config := &cacher.RistrettoCacheConfig{
-    NumCounters: 1e7,     // 10 million counters
-    MaxCost:     1 << 30, // 1GB max cost
-    BufferItems: 64,      // Buffer size
-}
-
-cache, err := cacher.NewRistrettoCache[MyType](config)
-```
-
-### Redis Cache Configuration
-
-```go
-config := &cacher.RedisCacheConfig{
-    Addr:         "localhost:6379",
-    Password:     "",
-    DB:           0,
-    DialTimeout:  5 * time.Second,
-    ReadTimeout:  3 * time.Second,
-    WriteTimeout: 3 * time.Second,
-    PoolSize:     10,
-    MinIdleConns: 2,
-}
-
-cache, err := cacher.NewRedisCache[MyType](config, cacher.NewJSONCoder[MyType]())
-```
-
-## Serialization
-
-### Using JSON (Default)
-
-```go
-jsonCoder := cacher.NewJSONCoder[User]()
-cache, err := cacher.NewRedisCache[User](config, jsonCoder)
-```
-
-### Using MessagePack
-
-```go
-msgpackCoder := cacher.NewMessagePackCoder[User]()
-cache, err := cacher.NewRedisCache[User](config, msgpackCoder)
-```
-
-### Custom Coder
-
-Implement the `Coder[V]` interface:
-
-```go
-type Coder[V any] interface {
-    Encode(value V) ([]byte, error)
-    Decode(data []byte) (V, error)
-}
-```
-
-## API Reference
-
-### TieredCacher
-
-```go
-type TieredCacher[V any] struct { ... }
-
-// Get retrieves a value using tiered caching with compute function
-func (tc *TieredCacher[V]) Get(ctx context.Context, key string, ttl time.Duration, computeFn ComputeFunc[V]) (V, error)
-
-// Set stores a value in all cache tiers
-func (tc *TieredCacher[V]) Set(ctx context.Context, key string, value V, ttl time.Duration) error
-
-// Delete removes a key from all cache tiers
-func (tc *TieredCacher[V]) Delete(ctx context.Context, key string) error
-```
-
-### Cache Interfaces
-
-```go
-type LocalCacher[V any] interface {
-    Get(ctx context.Context, key string) (V, error)
-    Set(ctx context.Context, key string, value V, ttl time.Duration) error
-    Delete(ctx context.Context, key string) error
-}
-
-type RemoteCacher[V any] interface {
-    Get(ctx context.Context, key string) (V, error)
-    Set(ctx context.Context, key string, value V, ttl time.Duration) error
-    Delete(ctx context.Context, key string) error
-}
-```
-
 ## Caching Strategy
 
 The `TieredCacher` implements a multi-tier caching strategy:
@@ -211,16 +96,6 @@ Check L1 (Local) ──Hit──→ Return Value
 Check L2 (Remote) ──Hit──→ Populate L1 → Return Value
     ↓ Miss
 Execute Compute Function → Populate L1 & L2 → Return Value
-```
-
-## Error Handling
-
-The library uses a sentinel error for cache misses:
-
-```go
-if errors.Is(err, cacher.ErrCacheMiss) {
-    // Handle cache miss
-}
 ```
 
 ## Performance Considerations

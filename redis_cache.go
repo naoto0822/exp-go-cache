@@ -60,11 +60,9 @@ func NewRedisCache[V any](config *RedisCacheConfig, coder Coder[V]) (*RedisCache
 	if config == nil {
 		config = DefaultRedisCacheConfig()
 	}
-
 	if coder == nil {
 		coder = NewJSONCoder[V]()
 	}
-
 	client := redis.NewClient(&redis.Options{
 		Addr:         config.Addr,
 		Password:     config.Password,
@@ -79,7 +77,6 @@ func NewRedisCache[V any](config *RedisCacheConfig, coder Coder[V]) (*RedisCache
 	// Verify connection
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-
 	if err := client.Ping(ctx).Err(); err != nil {
 		return nil, err
 	}
