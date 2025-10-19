@@ -10,7 +10,7 @@ A flexible, type-safe multi-tier caching library for Go with support for local a
 - **Multi-Tier Caching**: Implements a tiered caching strategy (L1: Local Cache → L2: Remote Cache)
 - **Two Caching Patterns**:
   - **TieredCacher**: Single-key operations with singleflight protection
-  - **BatchCacher**: Multi-key batch operations with optimized pipeline support
+  - **BatchTieredCacher**: Multi-key batch operations with optimized pipeline support
 - **Pluggable Backends**: Support for multiple cache implementations
   - Local: [Ristretto](https://github.com/dgraph-io/ristretto) (high-performance in-memory cache)
   - Remote: Redis via [go-redis](https://github.com/redis/go-redis)
@@ -19,7 +19,7 @@ A flexible, type-safe multi-tier caching library for Go with support for local a
   - MessagePack for better performance and smaller payload size
 - **Compute Function**: Built-in support for cache-aside pattern with compute functions
 - **Cache Stampede Protection**: TieredCacher uses singleflight to prevent duplicate compute function executions
-- **Batch Optimization**: BatchCacher uses Redis Pipeline for efficient multi-key operations
+- **Batch Optimization**: BatchTieredCacher uses Redis Pipeline for efficient multi-key operations
 - **Context Support**: Full context.Context support for cancellation and timeouts
 
 ## Installation
@@ -83,7 +83,7 @@ func main() {
 }
 ```
 
-### Multi-Key Operations with BatchCacher
+### Multi-Key Operations with BatchTieredCacher
 
 ```go
 package main
@@ -111,8 +111,8 @@ func main() {
     remoteCache, _ := cacher.NewRedisCache[User](cacher.DefaultRedisCacheConfig(), nil)
     defer remoteCache.Close()
 
-    // Create batch cacher
-    batchCacher := cacher.NewBatchCacher[User](localCache, remoteCache)
+    // Create batch tiered cacher
+    batchCacher := cacher.NewBatchTieredCacher[User](localCache, remoteCache)
 
     // Batch get with compute function
     keys := []string{"user:1", "user:2", "user:3"}
@@ -161,7 +161,7 @@ Uses [singleflight](https://pkg.go.dev/golang.org/x/sync/singleflight) to ensure
 - **Without singleflight**: 100 concurrent requests for same key = 100 database calls
 - **With singleflight**: 100 concurrent requests for same key = 1 database call (others wait and share result)
 
-### BatchCacher - Multi-Key Operations
+### BatchTieredCacher - Multi-Key Operations
 
 Optimized for multi-key batch operations with efficient pipeline support.
 
@@ -194,49 +194,12 @@ Return all results
 **When to Use:**
 
 - **TieredCacher**: Single key lookups, need stampede protection, high concurrency for same key
-- **BatchCacher**: Multiple keys at once, batch database support, minimize network overhead
-
-## Architecture
-
-### Cache Tiers
-
-1. **L1 (Local Cache)**: Fast in-memory cache using Ristretto
-2. **L2 (Remote Cache)**: Distributed cache using Redis
-
-### Interfaces
-
-```go
-// Single-key interfaces
-type LocalCacher[V any] interface {
-    Get(ctx context.Context, key string) (V, error)
-    Set(ctx context.Context, key string, value V, ttl time.Duration) error
-    Delete(ctx context.Context, key string) error
-}
-
-type RemoteCacher[V any] interface {
-    Get(ctx context.Context, key string) (V, error)
-    Set(ctx context.Context, key string, value V, ttl time.Duration) error
-    Delete(ctx context.Context, key string) error
-}
-
-// Batch interfaces (extends single-key interfaces)
-type BatchLocalCacher[V any] interface {
-    LocalCacher[V]
-    BatchGet(ctx context.Context, keys []string) (map[string]V, error)
-    BatchSet(ctx context.Context, items map[string]V, ttl time.Duration) error
-}
-
-type BatchRemoteCacher[V any] interface {
-    RemoteCacher[V]
-    BatchGet(ctx context.Context, keys []string) (map[string]V, error)
-    BatchSet(ctx context.Context, items map[string]V, ttl time.Duration) error
-}
-```
+- **BatchTieredCacher**: Multiple keys at once, batch database support, minimize network overhead
 
 ## Performance Considerations
 
 - **Ristretto** uses approximate algorithms (TinyLFU) for admission and eviction, providing excellent hit ratios
-- **Redis Pipeline** batches multiple commands into single network round-trip (used in BatchCacher)
+- **Redis Pipeline** batches multiple commands into single network round-trip (used in BatchTieredCacher)
 - **MessagePack** encoding is faster and produces smaller payloads compared to JSON
 - **Singleflight** prevents thundering herd problem in TieredCacher by deduplicating concurrent requests for the same key
 - **Batch Operations** minimize N+1 query problems by fetching multiple keys efficiently
