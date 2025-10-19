@@ -1,4 +1,4 @@
-# exp-go-cacher
+# exp-go-cache
 
 > **Note**: This is an experimental project for exploring multi-tier caching strategies and design patterns in Go. The API may change and is not recommended for production use.
 
@@ -9,8 +9,8 @@ A flexible, type-safe multi-tier caching library for Go with support for local a
 - **Type-Safe Generics**: Fully generic implementation using Go 1.18+ generics for compile-time type safety
 - **Multi-Tier Caching**: Implements a tiered caching strategy (L1: Local Cache → L2: Remote Cache)
 - **Two Caching Patterns**:
-  - **TieredCacher**: Single-key operations with singleflight protection
-  - **BatchTieredCacher**: Multi-key batch operations with optimized pipeline support
+  - **TieredCache**: Single-key operations with singleflight protection
+  - **BatchTieredCache**: Multi-key batch operations with optimized pipeline support
 - **Pluggable Backends**: Support for multiple cache implementations
   - Local: [Ristretto](https://github.com/dgraph-io/ristretto) (high-performance in-memory cache)
   - Remote: Redis via [go-redis](https://github.com/redis/go-redis)
@@ -25,12 +25,12 @@ A flexible, type-safe multi-tier caching library for Go with support for local a
 ## Installation
 
 ```bash
-go get github.com/naoto0822/exp-go-cacher
+go get github.com/naoto0822/exp-go-cache
 ```
 
 ## Quick Start
 
-### Single-Key Operations with TieredCacher
+### Single-Key Operations with TieredCache
 
 ```go
 package main
@@ -40,7 +40,7 @@ import (
     "fmt"
     "time"
 
-    "github.com/naoto0822/exp-go-cacher"
+    "github.com/naoto0822/exp-go-cache"
 )
 
 type User struct {
@@ -52,25 +52,25 @@ func main() {
     ctx := context.Background()
 
     // Setup local cache (Ristretto)
-    localCache, err := cacher.NewRistrettoCache[User](nil)
+    localCache, err := cache.NewRistrettoCache[User](nil)
     if err != nil {
         panic(err)
     }
     defer localCache.Close()
 
     // Setup remote cache (Redis)
-    redisConfig := cacher.DefaultRedisCacheConfig()
-    remoteCache, err := cacher.NewRedisCache[User](redisConfig, nil)
+    redisConfig := cache.DefaultRedisCacheConfig()
+    remoteCache, err := cache.NewRedisCache[User](redisConfig, nil)
     if err != nil {
         panic(err)
     }
     defer remoteCache.Close()
 
-    // Create tiered cacher
-    tieredCacher := cacher.NewTieredCacher[User](localCache, remoteCache)
+    // Create tiered cache
+    tieredCache := cache.NewTieredCache[User](localCache, remoteCache)
 
     // Use with compute function (cache-aside pattern)
-    user, err := tieredCacher.Get(ctx, "user:123", 5*time.Minute, func(ctx context.Context, key string) (User, error) {
+    user, err := tieredCache.Get(ctx, "user:123", 5*time.Minute, func(ctx context.Context, key string) (User, error) {
         // This function is called only on cache miss
         fmt.Println("Cache miss - fetching from database")
         return User{ID: 123, Name: "Alice"}, nil
@@ -83,7 +83,7 @@ func main() {
 }
 ```
 
-### Multi-Key Operations with BatchTieredCacher
+### Multi-Key Operations with BatchTieredCache
 
 ```go
 package main
@@ -93,7 +93,7 @@ import (
     "fmt"
     "time"
 
-    "github.com/naoto0822/exp-go-cacher"
+    "github.com/naoto0822/exp-go-cache"
 )
 
 type User struct {
@@ -104,19 +104,19 @@ type User struct {
 func main() {
     ctx := context.Background()
 
-    // Setup caches (same as TieredCacher)
-    localCache, _ := cacher.NewRistrettoCache[User](nil)
+    // Setup caches (same as TieredCache)
+    localCache, _ := cache.NewRistrettoCache[User](nil)
     defer localCache.Close()
 
-    remoteCache, _ := cacher.NewRedisCache[User](cacher.DefaultRedisCacheConfig(), nil)
+    remoteCache, _ := cache.NewRedisCache[User](cache.DefaultRedisCacheConfig(), nil)
     defer remoteCache.Close()
 
-    // Create batch tiered cacher
-    batchCacher := cacher.NewBatchTieredCacher[User](localCache, remoteCache)
+    // Create batch tiered cache
+    batchCache := cache.NewBatchTieredCache[User](localCache, remoteCache)
 
     // Batch get with compute function
     keys := []string{"user:1", "user:2", "user:3"}
-    users, err := batchCacher.BatchGet(ctx, keys, 5*time.Minute, func(ctx context.Context, missedKeys []string) (map[string]User, error) {
+    users, err := batchCache.BatchGet(ctx, keys, 5*time.Minute, func(ctx context.Context, missedKeys []string) (map[string]User, error) {
         // This function receives only cache-missed keys
         fmt.Printf("Cache miss for keys: %v - fetching from database\n", missedKeys)
 
@@ -139,7 +139,7 @@ func main() {
 
 ## Caching Strategies
 
-### TieredCacher - Single-Key Operations
+### TieredCache - Single-Key Operations
 
 Optimized for single-key lookups with cache stampede protection.
 
@@ -161,7 +161,7 @@ Uses [singleflight](https://pkg.go.dev/golang.org/x/sync/singleflight) to ensure
 - **Without singleflight**: 100 concurrent requests for same key = 100 database calls
 - **With singleflight**: 100 concurrent requests for same key = 1 database call (others wait and share result)
 
-### BatchTieredCacher - Multi-Key Operations
+### BatchTieredCache - Multi-Key Operations
 
 Optimized for multi-key batch operations with efficient pipeline support.
 
@@ -193,15 +193,15 @@ Return all results
 
 **When to Use:**
 
-- **TieredCacher**: Single key lookups, need stampede protection, high concurrency for same key
-- **BatchTieredCacher**: Multiple keys at once, batch database support, minimize network overhead
+- **TieredCache**: Single key lookups, need stampede protection, high concurrency for same key
+- **BatchTieredCache**: Multiple keys at once, batch database support, minimize network overhead
 
 ## Performance Considerations
 
 - **Ristretto** uses approximate algorithms (TinyLFU) for admission and eviction, providing excellent hit ratios
-- **Redis Pipeline** batches multiple commands into single network round-trip (used in BatchTieredCacher)
+- **Redis Pipeline** batches multiple commands into single network round-trip (used in BatchTieredCache)
 - **MessagePack** encoding is faster and produces smaller payloads compared to JSON
-- **Singleflight** prevents thundering herd problem in TieredCacher by deduplicating concurrent requests for the same key
+- **Singleflight** prevents thundering herd problem in TieredCache by deduplicating concurrent requests for the same key
 - **Batch Operations** minimize N+1 query problems by fetching multiple keys efficiently
 - Both cache tiers are populated on compute to maximize cache hits
 - Context cancellation is respected throughout the caching flow

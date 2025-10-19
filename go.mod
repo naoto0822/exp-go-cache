@@ -1,4 +1,4 @@
-module github.com/naoto0822/exp-go-cacher
+module github.com/naoto0822/exp-go-cache
 
 go 1.24.4
 

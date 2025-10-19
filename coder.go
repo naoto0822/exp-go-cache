@@ -1,4 +1,4 @@
-package cacher
+package cache
 
 // Coder defines the interface for encoding and decoding values
 type Coder[V any] interface {
