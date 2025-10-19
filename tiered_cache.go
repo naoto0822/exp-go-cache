@@ -11,19 +11,19 @@ import (
 // ComputeFunc is a function that computes the value when cache misses occur
 type ComputeFunc[V any] func(ctx context.Context, key string) (V, error)
 
-// TieredCacher implements a multi-tier caching strategy
+// TieredCache implements a multi-tier caching strategy
 // Strategy: Local Cache → Remote Cache
 // Uses singleflight to prevent cache stampede on compute function execution
-type TieredCacher[V any] struct {
+type TieredCache[V any] struct {
 	localCache  LocalCacher[V]
 	remoteCache RemoteCacher[V]
 	sfGroup     singleflight.Group
 }
 
-// NewTieredCacher creates a new multi-tier cacher with dependency injection
+// NewTieredCache creates a new multi-tier cache with dependency injection
 // Both localCache and remoteCache are optional (can be nil)
-func NewTieredCacher[V any](localCache LocalCacher[V], remoteCache RemoteCacher[V]) *TieredCacher[V] {
-	return &TieredCacher[V]{
+func NewTieredCache[V any](localCache LocalCacher[V], remoteCache RemoteCacher[V]) *TieredCache[V] {
+	return &TieredCache[V]{
 		localCache:  localCache,
 		remoteCache: remoteCache,
 	}
@@ -34,7 +34,7 @@ func NewTieredCacher[V any](localCache LocalCacher[V], remoteCache RemoteCacher[
 // 2. Check remote cache (L2) - populate L1 on hit
 // 3. Execute computeFn - populate L1 and L2 on compute
 // Uses singleflight to ensure only one compute function executes per key concurrently
-func (tc *TieredCacher[V]) Get(ctx context.Context, key string, ttl time.Duration, computeFn ComputeFunc[V]) (V, error) {
+func (tc *TieredCache[V]) Get(ctx context.Context, key string, ttl time.Duration, computeFn ComputeFunc[V]) (V, error) {
 	var zero V
 
 	// Try to get from cache tiers
@@ -80,7 +80,7 @@ func (tc *TieredCacher[V]) Get(ctx context.Context, key string, ttl time.Duratio
 
 // getCache attempts to retrieve a value from cache tiers
 // Returns (value, found, error)
-func (tc *TieredCacher[V]) getCache(ctx context.Context, key string) (V, bool, error) {
+func (tc *TieredCache[V]) getCache(ctx context.Context, key string) (V, bool, error) {
 	var zero V
 
 	// Try local cache first (L1)
@@ -111,7 +111,7 @@ func (tc *TieredCacher[V]) getCache(ctx context.Context, key string) (V, bool, e
 }
 
 // setCache writes a value to all cache tiers
-func (tc *TieredCacher[V]) setCache(ctx context.Context, key string, value V, ttl time.Duration) error {
+func (tc *TieredCache[V]) setCache(ctx context.Context, key string, value V, ttl time.Duration) error {
 	// Set in local cache (L1)
 	if tc.localCache != nil {
 		if err := tc.localCache.Set(ctx, key, value, ttl); err != nil {
@@ -128,12 +128,12 @@ func (tc *TieredCacher[V]) setCache(ctx context.Context, key string, value V, tt
 }
 
 // Set stores a value in all cache tiers
-func (tc *TieredCacher[V]) Set(ctx context.Context, key string, value V, ttl time.Duration) error {
+func (tc *TieredCache[V]) Set(ctx context.Context, key string, value V, ttl time.Duration) error {
 	return tc.setCache(ctx, key, value, ttl)
 }
 
 // Delete removes a key from all cache tiers
-func (tc *TieredCacher[V]) Delete(ctx context.Context, key string) error {
+func (tc *TieredCache[V]) Delete(ctx context.Context, key string) error {
 	if tc.localCache != nil {
 		if err := tc.localCache.Delete(ctx, key); err != nil && !errors.Is(err, ErrCacheMiss) {
 			return err

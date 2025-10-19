@@ -9,18 +9,18 @@ import (
 // It receives a slice of keys and returns a map of key-value pairs
 type BatchComputeFunc[V any] func(ctx context.Context, keys []string) (map[string]V, error)
 
-// BatchTieredCacher implements multi-key cache operations with tiered caching strategy
+// BatchTieredCache implements multi-key cache operations with tiered caching strategy
 // Strategy: L1 (Local Cache) → L2 (Remote Cache)
 // Optimized for batch operations where the compute function can fetch multiple keys efficiently
-type BatchTieredCacher[V any] struct {
+type BatchTieredCache[V any] struct {
 	localCache  BatchLocalCacher[V]
 	remoteCache BatchRemoteCacher[V]
 }
 
-// NewBatchTieredCacher creates a new batch tiered cacher with dependency injection
+// NewBatchTieredCache creates a new batch tiered cache with dependency injection
 // Both localCache and remoteCache are optional (can be nil)
-func NewBatchTieredCacher[V any](localCache BatchLocalCacher[V], remoteCache BatchRemoteCacher[V]) *BatchTieredCacher[V] {
-	return &BatchTieredCacher[V]{
+func NewBatchTieredCache[V any](localCache BatchLocalCacher[V], remoteCache BatchRemoteCacher[V]) *BatchTieredCache[V] {
+	return &BatchTieredCache[V]{
 		localCache:  localCache,
 		remoteCache: remoteCache,
 	}
@@ -32,7 +32,7 @@ func NewBatchTieredCacher[V any](localCache BatchLocalCacher[V], remoteCache Bat
 // 3. For L2 misses, execute batchComputeFn to fetch all at once
 // 4. Populate both L1 and L2 with computed values
 // Returns a map of successfully retrieved values (key -> value)
-func (bc *BatchTieredCacher[V]) BatchGet(ctx context.Context, keys []string, ttl time.Duration, batchComputeFn BatchComputeFunc[V]) (map[string]V, error) {
+func (bc *BatchTieredCache[V]) BatchGet(ctx context.Context, keys []string, ttl time.Duration, batchComputeFn BatchComputeFunc[V]) (map[string]V, error) {
 	if len(keys) == 0 {
 		return make(map[string]V), nil
 	}
@@ -112,7 +112,7 @@ func (bc *BatchTieredCacher[V]) BatchGet(ctx context.Context, keys []string, ttl
 
 // BatchSet stores multiple values in all cache tiers
 // All items share the same TTL
-func (bc *BatchTieredCacher[V]) BatchSet(ctx context.Context, items map[string]V, ttl time.Duration) error {
+func (bc *BatchTieredCache[V]) BatchSet(ctx context.Context, items map[string]V, ttl time.Duration) error {
 	if len(items) == 0 {
 		return nil
 	}
