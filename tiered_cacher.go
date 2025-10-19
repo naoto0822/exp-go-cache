@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"time"
+
+	"golang.org/x/sync/singleflight"
 )
 
 // ComputeFunc is a function that computes the value when cache misses occur
@@ -11,9 +13,11 @@ type ComputeFunc[V any] func(ctx context.Context, key string) (V, error)
 
 // TieredCacher implements a multi-tier caching strategy
 // Strategy: Local Cache → Remote Cache
+// Uses singleflight to prevent cache stampede on compute function execution
 type TieredCacher[V any] struct {
 	localCache  LocalCacher[V]
 	remoteCache RemoteCacher[V]
+	sfGroup     singleflight.Group
 }
 
 // NewTieredCacher creates a new multi-tier cacher with dependency injection
@@ -29,6 +33,7 @@ func NewTieredCacher[V any](localCache LocalCacher[V], remoteCache RemoteCacher[
 // 1. Check local cache (L1)
 // 2. Check remote cache (L2) - populate L1 on hit
 // 3. Execute computeFn - populate L1 and L2 on compute
+// Uses singleflight to ensure only one compute function executes per key concurrently
 func (tm *TieredCacher[V]) Get(ctx context.Context, key string, ttl time.Duration, computeFn ComputeFunc[V]) (V, error) {
 	var zero V
 
@@ -41,18 +46,36 @@ func (tm *TieredCacher[V]) Get(ctx context.Context, key string, ttl time.Duratio
 		return val, nil
 	}
 
-	// Both caches missed, execute compute function
-	val, err = computeFn(ctx, key)
+	// Both caches missed, execute compute function with singleflight
+	result, err, _ := tm.sfGroup.Do(key, func() (interface{}, error) {
+		// Double-check cache after acquiring singleflight lock
+		val, found, err := tm.getCache(ctx, key)
+		if err != nil {
+			return zero, err
+		}
+		if found {
+			return val, nil
+		}
+
+		// Execute compute function
+		val, err = computeFn(ctx, key)
+		if err != nil {
+			return zero, err
+		}
+
+		// Set in caches
+		if err := tm.setCache(ctx, key, val, ttl); err != nil {
+			return zero, err
+		}
+
+		return val, nil
+	})
+
 	if err != nil {
 		return zero, err
 	}
 
-	// Set in caches
-	if err := tm.setCache(ctx, key, val, ttl); err != nil {
-		return zero, err
-	}
-
-	return val, nil
+	return result.(V), nil
 }
 
 // getCache attempts to retrieve a value from cache tiers
