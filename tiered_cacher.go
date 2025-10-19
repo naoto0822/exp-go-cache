@@ -34,11 +34,11 @@ func NewTieredCacher[V any](localCache LocalCacher[V], remoteCache RemoteCacher[
 // 2. Check remote cache (L2) - populate L1 on hit
 // 3. Execute computeFn - populate L1 and L2 on compute
 // Uses singleflight to ensure only one compute function executes per key concurrently
-func (tm *TieredCacher[V]) Get(ctx context.Context, key string, ttl time.Duration, computeFn ComputeFunc[V]) (V, error) {
+func (tc *TieredCacher[V]) Get(ctx context.Context, key string, ttl time.Duration, computeFn ComputeFunc[V]) (V, error) {
 	var zero V
 
 	// Try to get from cache tiers
-	val, found, err := tm.getCache(ctx, key)
+	val, found, err := tc.getCache(ctx, key)
 	if err != nil {
 		return zero, err
 	}
@@ -47,9 +47,9 @@ func (tm *TieredCacher[V]) Get(ctx context.Context, key string, ttl time.Duratio
 	}
 
 	// Both caches missed, execute compute function with singleflight
-	result, err, _ := tm.sfGroup.Do(key, func() (interface{}, error) {
+	result, err, _ := tc.sfGroup.Do(key, func() (interface{}, error) {
 		// Double-check cache after acquiring singleflight lock
-		val, found, err := tm.getCache(ctx, key)
+		val, found, err := tc.getCache(ctx, key)
 		if err != nil {
 			return zero, err
 		}
@@ -64,7 +64,7 @@ func (tm *TieredCacher[V]) Get(ctx context.Context, key string, ttl time.Duratio
 		}
 
 		// Set in caches
-		if err := tm.setCache(ctx, key, val, ttl); err != nil {
+		if err := tc.setCache(ctx, key, val, ttl); err != nil {
 			return zero, err
 		}
 
@@ -80,12 +80,12 @@ func (tm *TieredCacher[V]) Get(ctx context.Context, key string, ttl time.Duratio
 
 // getCache attempts to retrieve a value from cache tiers
 // Returns (value, found, error)
-func (tm *TieredCacher[V]) getCache(ctx context.Context, key string) (V, bool, error) {
+func (tc *TieredCacher[V]) getCache(ctx context.Context, key string) (V, bool, error) {
 	var zero V
 
 	// Try local cache first (L1)
-	if tm.localCache != nil {
-		val, err := tm.localCache.Get(ctx, key)
+	if tc.localCache != nil {
+		val, err := tc.localCache.Get(ctx, key)
 		if err == nil {
 			return val, true, nil
 		}
@@ -95,8 +95,8 @@ func (tm *TieredCacher[V]) getCache(ctx context.Context, key string) (V, bool, e
 	}
 
 	// Try remote cache (L2)
-	if tm.remoteCache != nil {
-		val, err := tm.remoteCache.Get(ctx, key)
+	if tc.remoteCache != nil {
+		val, err := tc.remoteCache.Get(ctx, key)
 		if err == nil {
 			// TODO: Populate L1 on L2 hit
 			return val, true, nil
@@ -111,16 +111,16 @@ func (tm *TieredCacher[V]) getCache(ctx context.Context, key string) (V, bool, e
 }
 
 // setCache writes a value to all cache tiers
-func (tm *TieredCacher[V]) setCache(ctx context.Context, key string, value V, ttl time.Duration) error {
+func (tc *TieredCacher[V]) setCache(ctx context.Context, key string, value V, ttl time.Duration) error {
 	// Set in local cache (L1)
-	if tm.localCache != nil {
-		if err := tm.localCache.Set(ctx, key, value, ttl); err != nil {
+	if tc.localCache != nil {
+		if err := tc.localCache.Set(ctx, key, value, ttl); err != nil {
 			return err
 		}
 	}
 	// Set in remote cache (L2)
-	if tm.remoteCache != nil {
-		if err := tm.remoteCache.Set(ctx, key, value, ttl); err != nil {
+	if tc.remoteCache != nil {
+		if err := tc.remoteCache.Set(ctx, key, value, ttl); err != nil {
 			return err
 		}
 	}
@@ -128,19 +128,19 @@ func (tm *TieredCacher[V]) setCache(ctx context.Context, key string, value V, tt
 }
 
 // Set stores a value in all cache tiers
-func (tm *TieredCacher[V]) Set(ctx context.Context, key string, value V, ttl time.Duration) error {
-	return tm.setCache(ctx, key, value, ttl)
+func (tc *TieredCacher[V]) Set(ctx context.Context, key string, value V, ttl time.Duration) error {
+	return tc.setCache(ctx, key, value, ttl)
 }
 
 // Delete removes a key from all cache tiers
-func (tm *TieredCacher[V]) Delete(ctx context.Context, key string) error {
-	if tm.localCache != nil {
-		if err := tm.localCache.Delete(ctx, key); err != nil && !errors.Is(err, ErrCacheMiss) {
+func (tc *TieredCacher[V]) Delete(ctx context.Context, key string) error {
+	if tc.localCache != nil {
+		if err := tc.localCache.Delete(ctx, key); err != nil && !errors.Is(err, ErrCacheMiss) {
 			return err
 		}
 	}
-	if tm.remoteCache != nil {
-		if err := tm.remoteCache.Delete(ctx, key); err != nil && !errors.Is(err, ErrCacheMiss) {
+	if tc.remoteCache != nil {
+		if err := tc.remoteCache.Delete(ctx, key); err != nil && !errors.Is(err, ErrCacheMiss) {
 			return err
 		}
 	}
