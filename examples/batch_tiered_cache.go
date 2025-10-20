@@ -23,8 +23,9 @@ func exampleBatchTieredCache() {
 	remoteCache, _ := cache.NewRedisCache[Book](cache.DefaultRedisCacheConfig(), nil)
 	defer remoteCache.Close()
 
-	// Create batch tiered cache
-	batchCache := cache.NewBatchTieredCache(localCache, remoteCache)
+	// Create batch tiered cache with multiple tiers
+	// First argument (localCache) is L1, second argument (remoteCache) is L2
+	batchCache := cache.NewBatchTieredCache[Book](localCache, remoteCache)
 
 	// Batch get with compute function
 	keys := []string{"book:1", "book:2", "book:3"}

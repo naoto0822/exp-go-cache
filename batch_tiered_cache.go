@@ -10,27 +10,33 @@ import (
 type BatchComputeFunc[V any] func(ctx context.Context, keys []string) (map[string]V, error)
 
 // BatchTieredCache implements multi-key cache operations with tiered caching strategy
-// Strategy: L1 (Local Cache) → L2 (Remote Cache)
+// Strategy: caches[0] (L1) → caches[1] (L2) → ... → caches[n] (Ln)
 // Optimized for batch operations where the compute function can fetch multiple keys efficiently
 type BatchTieredCache[V any] struct {
-	localCache  BatchLocalCacher[V]
-	remoteCache BatchRemoteCacher[V]
+	caches []BatchCacher[V]
 }
 
 // NewBatchTieredCache creates a new batch tiered cache with dependency injection
-// Both localCache and remoteCache are optional (can be nil)
-func NewBatchTieredCache[V any](localCache BatchLocalCacher[V], remoteCache BatchRemoteCacher[V]) *BatchTieredCache[V] {
+// caches is a slice where caches[0] is L1 (fastest), caches[1] is L2, etc.
+// Empty or nil caches in the slice are skipped
+func NewBatchTieredCache[V any](caches ...BatchCacher[V]) *BatchTieredCache[V] {
+	// Filter out nil caches
+	validCaches := make([]BatchCacher[V], 0, len(caches))
+	for _, cache := range caches {
+		if cache != nil {
+			validCaches = append(validCaches, cache)
+		}
+	}
 	return &BatchTieredCache[V]{
-		localCache:  localCache,
-		remoteCache: remoteCache,
+		caches: validCaches,
 	}
 }
 
 // BatchGet retrieves multiple values using the tiered caching strategy:
-// 1. Check L1 (local cache) using BatchGet
-// 2. For L1 misses, check L2 (remote cache) using BatchGet and populate L1
-// 3. For L2 misses, execute batchComputeFn to fetch all at once
-// 4. Populate both L1 and L2 with computed values
+// 1. Check L1, L2, ..., Ln in order using BatchGet
+// 2. For each tier hit, populate upper tiers
+// 3. For all misses, execute batchComputeFn to fetch all at once
+// 4. Populate all tiers with computed values
 // Returns a map of successfully retrieved values (key -> value)
 func (bc *BatchTieredCache[V]) BatchGet(ctx context.Context, keys []string, ttl time.Duration, batchComputeFn BatchComputeFunc[V]) (map[string]V, error) {
 	if len(keys) == 0 {
@@ -40,41 +46,26 @@ func (bc *BatchTieredCache[V]) BatchGet(ctx context.Context, keys []string, ttl 
 	results := make(map[string]V)
 	remainingKeys := keys
 
-	// Step 1: Try to get from L1 (local cache)
-	if bc.localCache != nil {
-		l1Results, err := bc.localCache.BatchGet(ctx, remainingKeys)
-		if err == nil && len(l1Results) > 0 {
-			// Add L1 hits to results
-			for k, v := range l1Results {
-				results[k] = v
-			}
-
-			// Update remaining keys (L1 misses)
-			remainingKeys = filterMissingKeys(remainingKeys, l1Results)
+	// Try each cache tier in order
+	for tierIndex, cache := range bc.caches {
+		if len(remainingKeys) == 0 {
+			break
 		}
-	}
 
-	// If all keys were found in L1, return early
-	if len(remainingKeys) == 0 {
-		return results, nil
-	}
-
-	// Step 2: Try to get from L2 (remote cache)
-	if bc.remoteCache != nil {
-		l2Results, err := bc.remoteCache.BatchGet(ctx, remainingKeys)
-		if err == nil && len(l2Results) > 0 {
-			// Add L2 hits to results
-			for k, v := range l2Results {
+		tierResults, err := cache.BatchGet(ctx, remainingKeys)
+		if err == nil && len(tierResults) > 0 {
+			// Add tier hits to results
+			for k, v := range tierResults {
 				results[k] = v
 			}
 
-			// Populate L1 with L2 hits
-			if bc.localCache != nil {
-				_ = bc.localCache.BatchSet(ctx, l2Results, ttl)
+			// Populate upper tiers if this is L2 or below
+			if tierIndex > 0 {
+				_ = bc.populateUpperTiers(ctx, tierResults, ttl, tierIndex)
 			}
 
-			// Update remaining keys (L2 misses)
-			remainingKeys = filterMissingKeys(remainingKeys, l2Results)
+			// Update remaining keys (tier misses)
+			remainingKeys = filterMissingKeys(remainingKeys, tierResults)
 		}
 	}
 
@@ -83,22 +74,16 @@ func (bc *BatchTieredCache[V]) BatchGet(ctx context.Context, keys []string, ttl 
 		return results, nil
 	}
 
-	// Step 3: Execute batch compute for remaining keys
+	// Execute batch compute for remaining keys
 	computedValues, err := batchComputeFn(ctx, remainingKeys)
 	if err != nil {
 		return results, err
 	}
 
-	// Step 4: Populate caches with computed values
+	// Populate all caches with computed values
 	if len(computedValues) > 0 {
-		// Set in L1
-		if bc.localCache != nil {
-			_ = bc.localCache.BatchSet(ctx, computedValues, ttl)
-		}
-
-		// Set in L2
-		if bc.remoteCache != nil {
-			_ = bc.remoteCache.BatchSet(ctx, computedValues, ttl)
+		for _, cache := range bc.caches {
+			_ = cache.BatchSet(ctx, computedValues, ttl)
 		}
 
 		// Add computed values to results
@@ -110,6 +95,16 @@ func (bc *BatchTieredCache[V]) BatchGet(ctx context.Context, keys []string, ttl 
 	return results, nil
 }
 
+// populateUpperTiers writes values to all cache tiers above the specified tier
+func (bc *BatchTieredCache[V]) populateUpperTiers(ctx context.Context, items map[string]V, ttl time.Duration, foundTierIndex int) error {
+	for i := 0; i < foundTierIndex && i < len(bc.caches); i++ {
+		if err := bc.caches[i].BatchSet(ctx, items, ttl); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // BatchSet stores multiple values in all cache tiers
 // All items share the same TTL
 func (bc *BatchTieredCache[V]) BatchSet(ctx context.Context, items map[string]V, ttl time.Duration) error {
@@ -117,16 +112,8 @@ func (bc *BatchTieredCache[V]) BatchSet(ctx context.Context, items map[string]V,
 		return nil
 	}
 
-	// Set in L1
-	if bc.localCache != nil {
-		if err := bc.localCache.BatchSet(ctx, items, ttl); err != nil {
-			return err
-		}
-	}
-
-	// Set in L2
-	if bc.remoteCache != nil {
-		if err := bc.remoteCache.BatchSet(ctx, items, ttl); err != nil {
+	for _, cache := range bc.caches {
+		if err := cache.BatchSet(ctx, items, ttl); err != nil {
 			return err
 		}
 	}

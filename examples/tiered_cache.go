@@ -31,8 +31,9 @@ func exampleTieredCache() {
 	}
 	defer remoteCache.Close()
 
-	// Create tiered cache
-	tieredCache := cache.NewTieredCache(localCache, remoteCache)
+	// Create tiered cache with multiple tiers
+	// First argument (localCache) is L1, second argument (remoteCache) is L2
+	tieredCache := cache.NewTieredCache[User](localCache, remoteCache)
 
 	// Use with compute function (cache-aside pattern)
 	user, err := tieredCache.Get(ctx, "user:123", 5*time.Minute, func(ctx context.Context, key string) (User, error) {
