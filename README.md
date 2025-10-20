@@ -38,6 +38,91 @@ See [examples/tiered_cache.go](examples/tiered_cache.go) for a complete example.
 
 See [examples/batch_tiered_cache.go](examples/batch_tiered_cache.go) for a complete example.
 
+## Diagram
+
+```mermaid
+---
+config:
+  layout: dagre
+---
+classDiagram
+direction LR
+    class TieredCache {
+	    -caches []Cacher
+	    -sfGroup singleflight.Group
+	    +Get(ctx, key, ttl, computeFn) value, error
+	    +Set(ctx, key, value, ttl) error
+	    +Delete(ctx, key) error
+	    -getCache(ctx, key) value, int, bool, error
+	    -setCache(ctx, key, value, ttl) error
+	    -populateUpperTiers(ctx, key, value, ttl, tierIndex) error
+    }
+    class Cacher {
+        +Get(ctx, key) value, error
+        +Set(ctx, key, value, ttl) error
+        +Delete(ctx, key) error
+    }
+    class BatchTieredCache {
+	    -caches []BatchCacher
+	    +BatchGet(ctx, keys, ttl, batchComputeFn) map, error
+	    +BatchSet(ctx, items, ttl) error
+	    -populateUpperTiers(ctx, items, ttl, tierIndex) error
+    }
+    class BatchCacher {
+	    +Get(ctx, key) value, error
+	    +Set(ctx, key, value, ttl) error
+	    +Delete(ctx, key) error
+	    +BatchGet(ctx, keys) map, error
+	    +BatchSet(ctx, items, ttl) error
+    }
+    class RistrettoCache {
+	    -cache ristretto.Cache
+	    +Get(ctx, key) value, error
+	    +Set(ctx, key, value, ttl) error
+	    +Delete(ctx, key) error
+	    +BatchGet(ctx, keys) map, error
+	    +BatchSet(ctx, items, ttl) error
+	    +Close() error
+    }
+    class RedisCache {
+	    -client redis.Client
+	    -coder Coder
+	    +Get(ctx, key) value, error
+	    +Set(ctx, key, value, ttl) error
+	    +Delete(ctx, key) error
+	    +BatchGet(ctx, keys) map, error
+	    +BatchSet(ctx, items, ttl) error
+	    +Close() error
+    }
+    class Coder {
+	    +Encode(value) []byte, error
+	    +Decode(data) value, error
+    }
+    class JSONSerializer {
+	    +Encode(value) []byte, error
+	    +Decode(data) value, error
+    }
+    class MsgpackSerializer {
+	    +Encode(value) []byte, error
+	    +Decode(data) value, error
+    }
+
+	<<interface>> Cacher
+	<<interface>> BatchCacher
+	<<interface>> Coder
+
+    TieredCache o-- "0..*" Cacher : contains
+    BatchTieredCache o-- "0..*" BatchCacher : contains
+    RedisCache o-- Coder : uses
+    JSONSerializer ..|> Coder : implements
+    MsgpackSerializer ..|> Coder : implements
+    RistrettoCache ..|> BatchCacher : implements
+    RistrettoCache ..|> Cacher : implements
+    RedisCache ..|> BatchCacher : implements
+    RedisCache ..|> Cacher : implements
+
+```
+
 ## Caching Strategies
 
 ### TieredCache - Single-Key Operations
