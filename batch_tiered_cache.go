@@ -47,7 +47,7 @@ func (bc *BatchTieredCache[V]) BatchGet(ctx context.Context, keys []string, ttl 
 	remainingKeys := keys
 
 	// Try each cache tier in order
-	for tierIndex, cache := range bc.caches {
+	for _, cache := range bc.caches {
 		if len(remainingKeys) == 0 {
 			break
 		}
@@ -59,10 +59,7 @@ func (bc *BatchTieredCache[V]) BatchGet(ctx context.Context, keys []string, ttl 
 				results[k] = v
 			}
 
-			// Populate upper tiers if this is L2 or below
-			if tierIndex > 0 {
-				_ = bc.populateUpperTiers(ctx, tierResults, ttl, tierIndex)
-			}
+			// TODO: Populate upper tiers if this is L2 or below
 
 			// Update remaining keys (tier misses)
 			remainingKeys = filterMissingKeys(remainingKeys, tierResults)
@@ -80,29 +77,19 @@ func (bc *BatchTieredCache[V]) BatchGet(ctx context.Context, keys []string, ttl 
 		return results, err
 	}
 
-	// Populate all caches with computed values
 	if len(computedValues) > 0 {
-		for _, cache := range bc.caches {
-			_ = cache.BatchSet(ctx, computedValues, ttl)
-		}
-
 		// Add computed values to results
 		for k, v := range computedValues {
 			results[k] = v
 		}
-	}
-
-	return results, nil
-}
-
-// populateUpperTiers writes values to all cache tiers above the specified tier
-func (bc *BatchTieredCache[V]) populateUpperTiers(ctx context.Context, items map[string]V, ttl time.Duration, foundTierIndex int) error {
-	for i := 0; i < foundTierIndex && i < len(bc.caches); i++ {
-		if err := bc.caches[i].BatchSet(ctx, items, ttl); err != nil {
-			return err
+		// Populate all caches with computed values
+		for _, cache := range bc.caches {
+			if err := cache.BatchSet(ctx, computedValues, ttl); err != nil {
+				return results, err
+			}
 		}
 	}
-	return nil
+	return results, nil
 }
 
 // BatchSet stores multiple values in all cache tiers
@@ -111,13 +98,11 @@ func (bc *BatchTieredCache[V]) BatchSet(ctx context.Context, items map[string]V,
 	if len(items) == 0 {
 		return nil
 	}
-
 	for _, cache := range bc.caches {
 		if err := cache.BatchSet(ctx, items, ttl); err != nil {
 			return err
 		}
 	}
-
 	return nil
 }
 
@@ -131,3 +116,13 @@ func filterMissingKeys[V any](keys []string, foundKeys map[string]V) []string {
 	}
 	return missing
 }
+
+// populateUpperTiers writes values to all cache tiers above the specified tier
+// func (bc *BatchTieredCache[V]) populateUpperTiers(ctx context.Context, items map[string]V, ttl time.Duration, foundTierIndex int) error {
+// 	for i := 0; i < foundTierIndex && i < len(bc.caches); i++ {
+// 		if err := bc.caches[i].BatchSet(ctx, items, ttl); err != nil {
+// 			return err
+// 		}
+// 	}
+// 	return nil
+// }

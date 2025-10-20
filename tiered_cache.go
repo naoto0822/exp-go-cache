@@ -44,51 +44,33 @@ func (tc *TieredCache[V]) Get(ctx context.Context, key string, ttl time.Duration
 	var zero V
 
 	// Try to get from cache tiers
-	val, tierIndex, found, err := tc.getCache(ctx, key)
+	val, _, found, err := tc.getCache(ctx, key)
 	if err != nil {
 		return zero, err
 	}
 	if found {
-		// Populate upper tiers if found in L2 or below
-		if tierIndex > 0 {
-			_ = tc.populateUpperTiers(ctx, key, val, ttl, tierIndex)
-		}
+		// TODO: Populate upper tiers if found in L2 or below
 		return val, nil
 	}
 
 	// All caches missed, execute compute function with singleflight
 	result, err, _ := tc.sfGroup.Do(key, func() (interface{}, error) {
-		// Double-check cache after acquiring singleflight lock
-		val, tierIndex, found, err := tc.getCache(ctx, key)
-		if err != nil {
-			return zero, err
-		}
-		if found {
-			// Populate upper tiers if found in L2 or below
-			if tierIndex > 0 {
-				_ = tc.populateUpperTiers(ctx, key, val, ttl, tierIndex)
-			}
-			return val, nil
-		}
+		// TODO: Double-check cache after acquiring singleflight lock?
 
 		// Execute compute function
 		val, err = computeFn(ctx, key)
 		if err != nil {
 			return zero, err
 		}
-
 		// Set in all caches
 		if err := tc.setCache(ctx, key, val, ttl); err != nil {
 			return zero, err
 		}
-
 		return val, nil
 	})
-
 	if err != nil {
 		return zero, err
 	}
-
 	return result.(V), nil
 }
 
@@ -111,17 +93,6 @@ func (tc *TieredCache[V]) getCache(ctx context.Context, key string) (V, int, boo
 
 	// Not found in any cache
 	return zero, -1, false, nil
-}
-
-// populateUpperTiers writes a value to all cache tiers above the specified tier
-// Used when a value is found in L2+ to populate L1
-func (tc *TieredCache[V]) populateUpperTiers(ctx context.Context, key string, value V, ttl time.Duration, foundTierIndex int) error {
-	for i := 0; i < foundTierIndex && i < len(tc.caches); i++ {
-		if err := tc.caches[i].Set(ctx, key, value, ttl); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // setCache writes a value to all cache tiers
@@ -148,3 +119,14 @@ func (tc *TieredCache[V]) Delete(ctx context.Context, key string) error {
 	}
 	return nil
 }
+
+// populateUpperTiers writes a value to all cache tiers above the specified tier
+// Used when a value is found in L2+ to populate L1
+// func (tc *TieredCache[V]) populateUpperTiers(ctx context.Context, key string, value V, ttl time.Duration, foundTierIndex int) error {
+// 	for i := 0; i < foundTierIndex && i < len(tc.caches); i++ {
+// 		if err := tc.caches[i].Set(ctx, key, value, ttl); err != nil {
+// 			return err
+// 		}
+// 	}
+// 	return nil
+// }
