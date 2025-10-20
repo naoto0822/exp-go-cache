@@ -38,7 +38,66 @@ See [examples/tiered_cache.go](examples/tiered_cache.go) for a complete example.
 
 See [examples/batch_tiered_cache.go](examples/batch_tiered_cache.go) for a complete example.
 
-## Diagram
+## Caching Strategies
+
+### TieredCache - Single-Key Operations
+
+Optimized for single-key lookups with cache stampede protection.
+
+**Cache Flow:**
+```
+Get Request (single key)
+    ↓
+Check L1 (Local) ──Hit──→ Return Value
+    ↓ Miss
+Check L2 (Remote) ──Hit──→ Populate L1 → Return Value
+    ↓ Miss
+Execute Compute Function (via singleflight) → Populate L1 & L2 → Return Value
+```
+
+**Cache Stampede Protection:**
+
+Uses [singleflight](https://pkg.go.dev/golang.org/x/sync/singleflight) to ensure only one compute function executes per key:
+
+- **Without singleflight**: 100 concurrent requests for same key = 100 database calls
+- **With singleflight**: 100 concurrent requests for same key = 1 database call (others wait and share result)
+
+### BatchTieredCache - Multi-Key Operations
+
+Optimized for multi-key batch operations with efficient pipeline support.
+
+**Cache Flow:**
+```
+BatchGet Request (multiple keys)
+    ↓
+BatchGet L1 (Local) ──Hits──→ Add to results
+    ↓ Misses
+BatchGet L2 (Remote via Pipeline) ──Hits──→ Populate L1 + Add to results
+    ↓ Misses
+Execute Batch Compute Function → Populate L1 & L2 → Add to results
+    ↓
+Return all results
+```
+
+**Batch Optimization:**
+
+- **L1 (Ristretto)**: Simple loop (fast memory access)
+- **L2 (Redis)**: Uses Pipeline for 1 network round-trip instead of N
+- **Compute Function**: Client can implement batch database query (N queries → 1 query)
+
+**Performance Comparison:**
+
+| Operation | Without Batch | With Batch |
+|-----------|--------------|------------|
+| 100 keys Redis fetch | 100 network calls | 1 network call (Pipeline) |
+| 100 keys DB fetch | 100 SQL queries | 1 SQL query (IN clause) |
+
+**When to Use:**
+
+- **TieredCache**: Single key lookups, need stampede protection, high concurrency for same key
+- **BatchTieredCache**: Multiple keys at once, batch database support, minimize network overhead
+
+## Class Diagram
 
 ```mermaid
 ---
@@ -122,65 +181,6 @@ direction LR
     RedisCache ..|> Cacher : implements
 
 ```
-
-## Caching Strategies
-
-### TieredCache - Single-Key Operations
-
-Optimized for single-key lookups with cache stampede protection.
-
-**Cache Flow:**
-```
-Get Request (single key)
-    ↓
-Check L1 (Local) ──Hit──→ Return Value
-    ↓ Miss
-Check L2 (Remote) ──Hit──→ Populate L1 → Return Value
-    ↓ Miss
-Execute Compute Function (via singleflight) → Populate L1 & L2 → Return Value
-```
-
-**Cache Stampede Protection:**
-
-Uses [singleflight](https://pkg.go.dev/golang.org/x/sync/singleflight) to ensure only one compute function executes per key:
-
-- **Without singleflight**: 100 concurrent requests for same key = 100 database calls
-- **With singleflight**: 100 concurrent requests for same key = 1 database call (others wait and share result)
-
-### BatchTieredCache - Multi-Key Operations
-
-Optimized for multi-key batch operations with efficient pipeline support.
-
-**Cache Flow:**
-```
-BatchGet Request (multiple keys)
-    ↓
-BatchGet L1 (Local) ──Hits──→ Add to results
-    ↓ Misses
-BatchGet L2 (Remote via Pipeline) ──Hits──→ Populate L1 + Add to results
-    ↓ Misses
-Execute Batch Compute Function → Populate L1 & L2 → Add to results
-    ↓
-Return all results
-```
-
-**Batch Optimization:**
-
-- **L1 (Ristretto)**: Simple loop (fast memory access)
-- **L2 (Redis)**: Uses Pipeline for 1 network round-trip instead of N
-- **Compute Function**: Client can implement batch database query (N queries → 1 query)
-
-**Performance Comparison:**
-
-| Operation | Without Batch | With Batch |
-|-----------|--------------|------------|
-| 100 keys Redis fetch | 100 network calls | 1 network call (Pipeline) |
-| 100 keys DB fetch | 100 SQL queries | 1 SQL query (IN clause) |
-
-**When to Use:**
-
-- **TieredCache**: Single key lookups, need stampede protection, high concurrency for same key
-- **BatchTieredCache**: Multiple keys at once, batch database support, minimize network overhead
 
 ## Performance Considerations
 
