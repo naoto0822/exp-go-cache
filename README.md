@@ -32,110 +32,11 @@ go get github.com/naoto0822/exp-go-cache
 
 ### Single-Key Operations with TieredCache
 
-```go
-package main
-
-import (
-    "context"
-    "fmt"
-    "time"
-
-    "github.com/naoto0822/exp-go-cache"
-)
-
-type User struct {
-    ID   int    `json:"id"`
-    Name string `json:"name"`
-}
-
-func main() {
-    ctx := context.Background()
-
-    // Setup local cache (Ristretto)
-    localCache, err := cache.NewRistrettoCache[User](nil)
-    if err != nil {
-        panic(err)
-    }
-    defer localCache.Close()
-
-    // Setup remote cache (Redis)
-    redisConfig := cache.DefaultRedisCacheConfig()
-    remoteCache, err := cache.NewRedisCache[User](redisConfig, nil)
-    if err != nil {
-        panic(err)
-    }
-    defer remoteCache.Close()
-
-    // Create tiered cache
-    tieredCache := cache.NewTieredCache[User](localCache, remoteCache)
-
-    // Use with compute function (cache-aside pattern)
-    user, err := tieredCache.Get(ctx, "user:123", 5*time.Minute, func(ctx context.Context, key string) (User, error) {
-        // This function is called only on cache miss
-        fmt.Println("Cache miss - fetching from database")
-        return User{ID: 123, Name: "Alice"}, nil
-    })
-    if err != nil {
-        panic(err)
-    }
-
-    fmt.Printf("User: %+v\n", user)
-}
-```
+See [examples/tiered_cache.go](examples/tiered_cache.go) for a complete example.
 
 ### Multi-Key Operations with BatchTieredCache
 
-```go
-package main
-
-import (
-    "context"
-    "fmt"
-    "time"
-
-    "github.com/naoto0822/exp-go-cache"
-)
-
-type User struct {
-    ID   int    `json:"id"`
-    Name string `json:"name"`
-}
-
-func main() {
-    ctx := context.Background()
-
-    // Setup caches (same as TieredCache)
-    localCache, _ := cache.NewRistrettoCache[User](nil)
-    defer localCache.Close()
-
-    remoteCache, _ := cache.NewRedisCache[User](cache.DefaultRedisCacheConfig(), nil)
-    defer remoteCache.Close()
-
-    // Create batch tiered cache
-    batchCache := cache.NewBatchTieredCache[User](localCache, remoteCache)
-
-    // Batch get with compute function
-    keys := []string{"user:1", "user:2", "user:3"}
-    users, err := batchCache.BatchGet(ctx, keys, 5*time.Minute, func(ctx context.Context, missedKeys []string) (map[string]User, error) {
-        // This function receives only cache-missed keys
-        fmt.Printf("Cache miss for keys: %v - fetching from database\n", missedKeys)
-
-        // Fetch all users from database in one query (efficient!)
-        results := make(map[string]User)
-        for _, key := range missedKeys {
-            // Simulate batch database query
-            results[key] = User{ID: 1, Name: "Alice"}
-        }
-        return results, nil
-    })
-
-    if err != nil {
-        panic(err)
-    }
-
-    fmt.Printf("Users: %+v\n", users)
-}
-```
+See [examples/batch_tiered_cache.go](examples/batch_tiered_cache.go) for a complete example.
 
 ## Caching Strategies
 
